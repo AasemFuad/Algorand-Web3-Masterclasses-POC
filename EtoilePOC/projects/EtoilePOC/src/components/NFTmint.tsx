@@ -1,117 +1,119 @@
-// src/components/components/NFTmint.tsx
 import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { useWallet } from '@txnlab/use-wallet-react'
 import { useSnackbar } from 'notistack'
+import { useMemo, useState } from 'react'
 import { sha512_256 } from 'js-sha512'
-import { useState } from 'react'
 import { getAlgodConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
 
-interface NFTMintProps {
+interface NFTmintProps {
   openModal: boolean
   setModalState: (value: boolean) => void
 }
 
-const NFTmint = ({ openModal, setModalState }: NFTMintProps) => {
-  const [metadataUrl, setMetadataUrl] = useState<string>('')
-  const [loading, setLoading] = useState<boolean>(false)
+const NFTmint = ({ openModal, setModalState }: NFTmintProps) => {
+  const [loading, setLoading] = useState(false)
+  const [metadataUrl, setMetadataUrl] = useState('')
   const [assetId, setAssetId] = useState<number | null>(null)
+
+  const algodConfig = getAlgodConfigFromViteEnvironment()
+  const algorand = useMemo(() => AlgorandClient.fromConfig({ algodConfig }), [algodConfig])
 
   const { enqueueSnackbar } = useSnackbar()
   const { transactionSigner, activeAddress } = useWallet()
 
-  const algodConfig = getAlgodConfigFromViteEnvironment()
-  const algorand = AlgorandClient.fromConfig({ algodConfig })
-
   const handleMint = async () => {
-    if (!activeAddress || !transactionSigner) {
-      enqueueSnackbar('Please connect your wallet first', { variant: 'warning' })
+    setLoading(true)
+
+    if (!transactionSigner || !activeAddress) {
+      enqueueSnackbar('Please connect your wallet first.', { variant: 'warning' })
+      setLoading(false)
       return
     }
-    if (!metadataUrl) {
-      enqueueSnackbar('Please paste your IPFS/Pinata metadata URL', { variant: 'warning' })
+    if (!metadataUrl.trim()) {
+      enqueueSnackbar('Please paste your metadata URL (IPFS via Pinata).', { variant: 'warning' })
+      setLoading(false)
       return
     }
 
     try {
-      setLoading(true)
-      setAssetId(null)
-      enqueueSnackbar('Minting your MasterPass NFT…', { variant: 'info' })
+      enqueueSnackbar('Minting your Étoile Pass NFT…', { variant: 'info' })
 
-      // sha512/256 hash of the metadata URL (32 bytes)
-      const metadataHash = new Uint8Array(sha512_256.arrayBuffer(metadataUrl))
+      // Use a browser-safe way to compute the 32-byte metadata hash
+      const hashBytes = new Uint8Array(sha512_256.array(metadataUrl))
 
-      const createNFTResult: any = await algorand.send.assetCreate({
+      const createNFTResult = await algorand.send.assetCreate({
         sender: activeAddress,
         signer: transactionSigner,
         total: 1n,
         decimals: 0,
-        assetName: 'MasterPass Ticket',
-        unitName: 'MTK', // ≤ 8 chars
+        assetName: 'Étoile Pass',
+        unitName: 'ETLP',
         url: metadataUrl,
-        metadataHash,
+        metadataHash: hashBytes,
         defaultFrozen: false,
       })
 
-      // Try a few common locations for the created asset id
-      const createdId =
-        createNFTResult?.assetId ??
-        createNFTResult?.confirmation?.['asset-index'] ??
-        createNFTResult?.confirmation?.assetIndex
+      enqueueSnackbar(`✅ NFT minted! Tx: ${createNFTResult.txIds[0]}`, { variant: 'success' })
 
-      if (createdId) {
-        setAssetId(createdId)
-        enqueueSnackbar(`NFT minted! Asset ID: ${createdId}`, { variant: 'success' })
-      } else {
-        enqueueSnackbar('Minted, but could not read Asset ID from response', { variant: 'warning' })
-      }
-    } catch (e: any) {
-      console.error(e)
-      enqueueSnackbar(e?.message ?? 'Mint failed', { variant: 'error' })
+      // The AlgorandClient returns the created asset id inside the first group result
+      const created = createNFTResult.confirmations?.[0]?.assetIndex
+      if (created) setAssetId(created)
+      setMetadataUrl('')
+    } catch {
+      enqueueSnackbar('❌ Failed to mint NFT', { variant: 'error' })
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <dialog id="nft_mint_modal" className={`modal ${openModal ? 'modal-open' : ''} bg-slate-200`}>
-      <form method="dialog" className="modal-box">
-        <h3 className="font-bold text-lg">Mint MasterPass NFT</h3>
-        <p className="text-sm mt-2">
-          Paste your Pinata/IPFS metadata URL. We’ll hash it (sha512/256) and mint a single-supply NFT on Algorand TestNet.
+    <dialog id="nftmint_modal" className={`modal ${openModal ? 'modal-open' : ''}`}>
+      <form method="dialog" className="modal-box bg-white shadow-card">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-display text-lg text-etoile-ink">Mint Étoile Pass (NFT)</h3>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={() => setModalState(false)}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p className="text-sm text-etoile-ink/70 mb-4">
+          Paste the <strong>IPFS metadata URL</strong> (e.g., from Pinata). We’ll mint a 1/1 NFT to your wallet.
         </p>
 
-        <div className="mt-4">
+        <label className="form-control">
+          <span className="label-text font-body">Metadata URL (ipfs://… or https://…)</span>
           <input
-            type="url"
-            className="input input-bordered w-full"
-            placeholder="ipfs://... or https://gateway.pinata.cloud/ipfs/..."
+            type="text"
+            placeholder="ipfs://bafy… or https://gateway.pinata.cloud/ipfs/…"
+            className="input input-bordered w-full font-body"
             value={metadataUrl}
             onChange={(e) => setMetadataUrl(e.target.value)}
           />
-        </div>
+        </label>
 
         {assetId && (
-          <div className="alert alert-success mt-4">
+          <div className="alert alert-success mt-3">
             <span>
-              🎉 Minted! Asset ID: <b>{assetId}</b> —{' '}
-              <a
-                className="link"
-                target="_blank"
-                rel="noreferrer"
-                href={`https://testnet.explorer.perawallet.app/asset/${assetId}`}
-              >
-                View in Explorer
-              </a>
+              🎉 Minted Asset ID: <code>{assetId}</code>
             </span>
           </div>
         )}
 
         <div className="modal-action">
-          <button className="btn" onClick={() => setModalState(!openModal)} disabled={loading}>
+          <button type="button" className="btn" onClick={() => setModalState(false)}>
             Close
           </button>
-          <button className={`btn btn-primary ${loading ? 'loading' : ''}`} onClick={handleMint} disabled={loading}>
-            {loading ? 'Minting…' : 'Mint NFT'}
+          <button
+            type="button"
+            className={`btn bg-etoile-pink text-white border-none ${metadataUrl ? '' : 'btn-disabled'}`}
+            onClick={handleMint}
+          >
+            {loading ? <span className="loading loading-spinner" /> : 'Mint NFT'}
           </button>
         </div>
       </form>
