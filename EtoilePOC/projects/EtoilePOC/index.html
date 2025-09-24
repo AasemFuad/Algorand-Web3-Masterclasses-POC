@@ -25,6 +25,10 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script>
+  // safety shim (harmless if already provided by Vite config)
+  window.global = window;
+</script>
+<script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

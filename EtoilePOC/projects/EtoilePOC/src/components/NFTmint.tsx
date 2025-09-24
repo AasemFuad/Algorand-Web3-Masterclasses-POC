@@ -8,9 +8,10 @@ import { getAlgodConfigFromViteEnvironment } from '../utils/network/getAlgoClien
 interface Props {
   openModal: boolean
   setModalState: (value: boolean) => void
+  onMintSuccess?: (assetId: string) => void
 }
 
-const NFTmint: React.FC<Props> = ({ openModal, setModalState }) => {
+const NFTmint: React.FC<Props> = ({ openModal, setModalState, onMintSuccess }) => {
   const { activeAddress, transactionSigner } = useWallet()
   const { enqueueSnackbar } = useSnackbar()
 
@@ -21,7 +22,6 @@ const NFTmint: React.FC<Props> = ({ openModal, setModalState }) => {
 
   const [metadataUrl, setMetadataUrl] = useState<string>('')
   const [loading, setLoading] = useState(false)
-  // store asset id as string (safe for bigint)
   const [assetId, setAssetId] = useState<string | null>(null)
 
   const handleMint = async () => {
@@ -38,7 +38,6 @@ const NFTmint: React.FC<Props> = ({ openModal, setModalState }) => {
       setLoading(true)
       enqueueSnackbar('Minting NFT…', { variant: 'info' })
 
-      // 32-byte hash using SHA-512/256 (no Buffer needed in the browser)
       const hashBytes = new Uint8Array(sha512_256.array(metadataUrl))
 
       const result = await algorand.send.assetCreate({
@@ -55,8 +54,10 @@ const NFTmint: React.FC<Props> = ({ openModal, setModalState }) => {
 
       const created = result.confirmation?.assetIndex
       if (created !== undefined) {
-        setAssetId(created.toString())
-        enqueueSnackbar(`NFT minted! Asset ID: ${created.toString()}`, { variant: 'success' })
+        const createdId = created.toString()
+        setAssetId(createdId)
+        onMintSuccess?.(createdId)
+        enqueueSnackbar(`NFT minted! Asset ID: ${createdId}`, { variant: 'success' })
       } else {
         enqueueSnackbar('Mint succeeded but asset ID not found in confirmation', { variant: 'warning' })
       }
@@ -72,16 +73,14 @@ const NFTmint: React.FC<Props> = ({ openModal, setModalState }) => {
     <dialog id="nft_mint_modal" className={`modal ${openModal ? 'modal-open' : ''} bg-slate-200`}>
       <form method="dialog" className="modal-box">
         <h3 className="font-bold text-lg">Mint your Étoile Pass (NFT)</h3>
-        <p className="text-sm text-slate-600 mb-4">
-          Paste the metadata URL you uploaded to IPFS (Pinata).
-        </p>
+        <p className="mb-4 text-sm text-slate-600">Paste the metadata URL you uploaded to IPFS (Pinata).</p>
 
         <input
           type="url"
           placeholder="ipfs://…  or  https://gateway.pinata.cloud/ipfs/…"
           className="input input-bordered w-full"
           value={metadataUrl}
-          onChange={(e) => setMetadataUrl(e.target.value)}
+          onChange={event => setMetadataUrl(event.target.value)}
         />
 
         {assetId && (
